@@ -22,6 +22,9 @@ import {
   fetchTrainingJobs,
   cancelTrainingJob,
   deleteTrainingJob,
+  FORCE_DELETE_DIALOG_TITLE,
+  FORCE_DELETE_DIALOG_DESCRIPTION,
+  getDeleteJobSuccessMessage,
   formatTrainingTimestamp,
   trainingTimestampToMs,
   getApiErrorMessage,
@@ -33,6 +36,11 @@ import { ConfirmDialog } from "../components/ConfirmDialog";
 import { TrainingConfigDialog } from "../components/training/TrainingConfigDialog";
 import { DatasetPreviewPanel } from "../components/training/DatasetPreviewPanel";
 import { useTour } from "../hooks/useTour";
+import {
+  useCancellationGracePeriod,
+  recordCancellingSince,
+  clearCancellingSince,
+} from "../hooks/useCancellationGracePeriod";
 import {
   FINE_TUNE_TOUR_ID,
   TRAINING_DIALOG_TOUR_PREFIX,
@@ -80,8 +88,8 @@ const STATUS_STYLES: Record<
   },
 };
 
-// A cancelling job can be deleted too: the container force-stops its worker first.
-const DELETABLE_STATUSES = ["completed", "failed", "cancelled", "cancelling"];
+// Only terminal jobs can be deleted normally. A cancelling job must finish stopping first.
+const DELETABLE_STATUSES = ["completed", "failed", "cancelled"];
 
 function StatusBadge({ status }: { status: string }) {
   const cfg = STATUS_STYLES[status] ?? STATUS_STYLES.queued;
@@ -95,6 +103,61 @@ function StatusBadge({ status }: { status: string }) {
       />
       {cfg.label}
     </span>
+  );
+}
+
+function CancellingActionCell({
+  jobId,
+  deletingJobId,
+  onForceDelete,
+}: {
+  jobId: string;
+  deletingJobId: string | null;
+  onForceDelete: (jobId: string) => void;
+}) {
+  const { isGracePeriodActive, remainingSeconds } = useCancellationGracePeriod(
+    jobId,
+    "cancelling",
+  );
+
+  return (
+    <div className="inline-flex items-center gap-1">
+      {isGracePeriodActive ? (
+        <Button
+          variant="ghost"
+          size="sm"
+          className="text-xs text-muted-foreground/60 cursor-not-allowed opacity-60"
+          disabled={true}
+          title={`Allowing worker 30s to finish gracefully. Force Delete unlocks in ${remainingSeconds}s if job remains stuck.`}
+        >
+          <Trash2 className="mr-1 h-3.5 w-3.5 opacity-50" />
+          Force Delete ({remainingSeconds}s)
+        </Button>
+      ) : (
+        <ConfirmDialog
+          dialogTitle={FORCE_DELETE_DIALOG_TITLE}
+          dialogDescription={FORCE_DELETE_DIALOG_DESCRIPTION}
+          confirmText="Force Delete"
+          onConfirm={() => onForceDelete(jobId)}
+          alertTrigger={
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-xs text-muted-foreground hover:text-destructive"
+              disabled={deletingJobId !== null}
+              title="Force delete stuck job"
+            >
+              {deletingJobId === jobId ? (
+                <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Trash2 className="mr-1 h-3.5 w-3.5" />
+              )}
+              {deletingJobId === jobId ? "Deleting…" : "Force Delete"}
+            </Button>
+          }
+        />
+      )}
+    </div>
   );
 }
 
@@ -188,6 +251,7 @@ export default function TrainingPage() {
 
   const handleCancel = async (jobId: string) => {
     try {
+      recordCancellingSince(jobId);
       await cancelTrainingJob(jobId);
       setJobs((prev) =>
         prev.map((j) => (j.id === jobId ? { ...j, status: "cancelling" } : j)),
@@ -197,16 +261,18 @@ export default function TrainingPage() {
       );
       loadJobs();
     } catch {
+      clearCancellingSince(jobId);
       customToast.error("Failed to cancel job");
     }
   };
 
-  const handleDelete = async (jobId: string) => {
+  const handleDelete = async (jobId: string, force = false) => {
     setDeletingJobId(jobId);
     try {
-      await deleteTrainingJob(jobId);
+      const { reconciled } = await deleteTrainingJob(jobId, force);
+      clearCancellingSince(jobId);
       setJobs((prev) => prev.filter((j) => j.id !== jobId));
-      customToast.success("Fine-tuning job deleted");
+      customToast.success(getDeleteJobSuccessMessage(force, reconciled));
     } catch (err) {
       customToast.error(getApiErrorMessage(err, "Failed to delete job"));
     } finally {
@@ -358,14 +424,21 @@ export default function TrainingPage() {
                         >
                           {(job.status === "queued" ||
                             job.status === "in_progress") && (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handleCancel(job.id)}
-                            >
-                              <XCircle className="mr-1 h-4 w-4" />
-                              Cancel
-                            </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handleCancel(job.id)}
+                              >
+                                <XCircle className="mr-1 h-4 w-4" />
+                                Cancel
+                              </Button>
+                            )}
+                          {job.status === "cancelling" && (
+                            <CancellingActionCell
+                              jobId={job.id}
+                              deletingJobId={deletingJobId}
+                              onForceDelete={(id) => handleDelete(id, true)}
+                            />
                           )}
                           {DELETABLE_STATUSES.includes(job.status) && (
                             <ConfirmDialog

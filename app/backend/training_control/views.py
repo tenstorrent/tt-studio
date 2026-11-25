@@ -7,6 +7,7 @@ import os
 import re
 import shutil
 import stat
+import tempfile
 from urllib.parse import quote
 
 import requests
@@ -189,10 +190,12 @@ def _proxy_post(url, body=None):
         return JsonResponse({"error": str(e)}, status=500)
 
 
-def _proxy_delete(url):
+def _proxy_delete(url, params=None):
     """Issue a DELETE to the training container and return a Django response."""
     try:
-        resp = requests.delete(url, headers=_auth_headers(), timeout=PROXY_TIMEOUT)
+        resp = requests.delete(
+            url, headers=_auth_headers(), params=params, timeout=PROXY_TIMEOUT
+        )
     except requests.ConnectionError:
         return JsonResponse(
             {"error": "Fine-tuning container is not reachable."}, status=502
@@ -210,6 +213,76 @@ def _proxy_delete(url):
         body = {}
     detail = body.get("detail") if isinstance(body, dict) else None
     return JsonResponse({"error": detail or resp.reason}, status=resp.status_code)
+
+
+TOMBSTONED_JOBS_FILENAME = ".tombstoned_jobs.json"
+MAX_TOMBSTONED_JOBS = 500
+
+
+def _tombstone_file_path():
+    return os.path.join(
+        backend_config.persistent_storage_volume,
+        TRAINING_VOLUME_SUBDIR,
+        TOMBSTONED_JOBS_FILENAME,
+    )
+
+
+def _read_tombstoned_jobs():
+    path = _tombstone_file_path()
+    if not os.path.exists(path):
+        return set()
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            if isinstance(data, list):
+                return {str(j) for j in data}
+    except Exception as e:
+        logger.warning("Could not read tombstoned jobs file %s: %s", path, e)
+    return set()
+
+
+def _tombstone_job(job_id, max_entries=MAX_TOMBSTONED_JOBS):
+    path = _tombstone_file_path()
+    dir_name = os.path.dirname(path)
+    os.makedirs(dir_name, exist_ok=True)
+
+    current_jobs = []
+    if os.path.exists(path):
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                if isinstance(data, list):
+                    current_jobs = [str(j) for j in data]
+        except Exception as e:
+            logger.warning(
+                "Could not load existing tombstone file for update %s: %s", path, e
+            )
+
+    job_id_str = str(job_id)
+    if job_id_str not in current_jobs:
+        current_jobs.append(job_id_str)
+
+    if len(current_jobs) > max_entries:
+        current_jobs = current_jobs[-max_entries:]
+
+    tmp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            "w", dir=dir_name, delete=False, encoding="utf-8"
+        ) as tf:
+            json.dump(current_jobs, tf)
+            tf.flush()
+            os.fsync(tf.fileno())
+            tmp_path = tf.name
+        os.replace(tmp_path, path)
+    except Exception as e:
+        if tmp_path and os.path.exists(tmp_path):
+            try:
+                os.remove(tmp_path)
+            except OSError:
+                pass
+        logger.exception("Failed to write tombstone file %s: %s", path, e)
+        raise
 
 
 def _deployments_serving_job(job_id):
@@ -868,7 +941,36 @@ class TrainingJobsListView(View):
         if err:
             return err
         url = f"{_base_url(entry)}/v1/jobs"
-        return _proxy_get(url, params=request.GET)
+        resp = _proxy_get(url, params=request.GET)
+        if resp.status_code == 200:
+            tombstones = _read_tombstoned_jobs()
+            if tombstones:
+                try:
+                    if hasattr(resp, "content"):
+                        data = json.loads(resp.content.decode("utf-8"))
+                    else:
+                        data = getattr(resp, "data", None)
+                    if isinstance(data, list):
+                        filtered = [
+                            j
+                            for j in data
+                            if not (isinstance(j, dict) and str(j.get("id")) in tombstones)
+                        ]
+                        return JsonResponse(filtered, safe=False)
+                    elif (
+                        isinstance(data, dict)
+                        and "jobs" in data
+                        and isinstance(data["jobs"], list)
+                    ):
+                        data["jobs"] = [
+                            j
+                            for j in data["jobs"]
+                            if not (isinstance(j, dict) and str(j.get("id")) in tombstones)
+                        ]
+                        return JsonResponse(data)
+                except Exception as e:
+                    logger.warning("Could not filter tombstoned jobs: %s", e)
+        return resp
 
     def post(self, request, *args, **kwargs):
         try:
@@ -953,6 +1055,8 @@ class TrainingJobDetailView(_JobView):
     """
 
     def get(self, request, job_id, *args, **kwargs):
+        if str(job_id) in _read_tombstoned_jobs():
+            return JsonResponse({"error": f"Job '{job_id}' not found."}, status=404)
         deploy_id = request.GET.get("deploy_id")
         entry, err = _find_training_container(deploy_id)
         if err:
@@ -978,7 +1082,31 @@ class TrainingJobDetailView(_JobView):
                 {"error": f"Merged model is in use by {', '.join(in_use)}. Stop the deployment first."},
                 status=409,
             )
-        return _proxy_delete(f"{_base_url(entry)}/v1/jobs/{quote(job_id, safe='')}")
+
+        force = request.GET.get("force", "").strip().lower() in ("true", "1")
+        params = {"force": "true"} if force else None
+        target_url = f"{_base_url(entry)}/v1/jobs/{quote(job_id, safe='')}"
+        resp = _proxy_delete(target_url, params=params)
+
+        if force and resp.status_code == 409:
+            try:
+                _tombstone_job(job_id)
+                logger.info(
+                    "Force-deleted and tombstoned stuck job %s after container 409",
+                    job_id,
+                )
+                return JsonResponse(
+                    {"status": "deleted", "reconciled": True}, status=200
+                )
+            except Exception as e:
+                logger.exception(
+                    "Failed to tombstone job %s on force delete: %s", job_id, e
+                )
+                return JsonResponse(
+                    {"error": f"Failed to reconcile force delete: {e}"}, status=500
+                )
+
+        return resp
 
 
 @method_decorator(csrf_exempt, name="dispatch")

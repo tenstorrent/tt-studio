@@ -45,6 +45,9 @@ import {
   cancelTrainingJob,
   deleteTrainingJob,
   deleteMergedModel,
+  FORCE_DELETE_DIALOG_TITLE,
+  FORCE_DELETE_DIALOG_DESCRIPTION,
+  getDeleteJobSuccessMessage,
   promoteCheckpoint,
   normalizeMergedCheckpoint,
   getCheckpointDownloadUrl,
@@ -58,6 +61,11 @@ import {
   type TrainingCheckpoint,
 } from "../api/trainingApi";
 import { customToast } from "../components/CustomToaster";
+import {
+  useCancellationGracePeriod,
+  recordCancellingSince,
+  clearCancellingSince,
+} from "../hooks/useCancellationGracePeriod";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 
 // ---------------------------------------------------------------------------
@@ -195,13 +203,21 @@ export default function TrainingJobDetailPage() {
   const logsContainerRef = useRef<HTMLDivElement>(null);
   const [autoScroll, setAutoScroll] = useState(true);
 
-  const isActive = job?.status === "queued" || job?.status === "in_progress";
+  const isActive =
+    job?.status === "queued" ||
+    job?.status === "in_progress" ||
+    job?.status === "cancelling";
   const isTerminal = job ? TERMINAL_STATUSES.includes(job.status) : false;
   // Show "Cancelling" optimistically: the backend keeps reporting the previous
   // status (queued / in_progress) for a few seconds after a cancel request, so
   // we override the displayed status until it reaches a terminal state.
   const displayStatus =
     cancelRequested && !isTerminal ? "cancelling" : job?.status ?? "queued";
+
+  const { isGracePeriodActive, remainingSeconds } = useCancellationGracePeriod(
+    jobId,
+    job ? displayStatus : undefined,
+  );
 
   const loadAll = useCallback(async () => {
     if (!jobId) return;
@@ -279,6 +295,7 @@ export default function TrainingJobDetailPage() {
   const handleCancel = async () => {
     if (!jobId) return;
     setCancelRequested(true);
+    recordCancellingSince(jobId);
     try {
       const result = await cancelTrainingJob(jobId);
       // The server flips the job to "cancelling" and returns the new status in
@@ -293,6 +310,7 @@ export default function TrainingJobDetailPage() {
       loadAll();
     } catch {
       setCancelRequested(false);
+      clearCancellingSince(jobId);
       customToast.error("Failed to cancel job");
     }
   };
@@ -381,12 +399,13 @@ export default function TrainingJobDetailPage() {
     }
   };
 
-  const handleDeleteJob = async () => {
+  const handleDeleteJob = async (force = false) => {
     if (!jobId) return;
     setDeletingJob(true);
     try {
-      await deleteTrainingJob(jobId);
-      customToast.success("Fine-tuning job deleted");
+      const { reconciled } = await deleteTrainingJob(jobId, force);
+      clearCancellingSince(jobId);
+      customToast.success(getDeleteJobSuccessMessage(force, reconciled));
       navigate("/training");
     } catch (err) {
       setDeletingJob(false);
@@ -457,14 +476,16 @@ export default function TrainingJobDetailPage() {
                 variant="destructive"
                 size="sm"
                 onClick={handleCancel}
-                disabled={cancelRequested}
+                disabled={cancelRequested || displayStatus === "cancelling"}
               >
-                {cancelRequested ? (
+                {cancelRequested || displayStatus === "cancelling" ? (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 ) : (
                   <XCircle className="mr-2 h-4 w-4" />
                 )}
-                {cancelRequested ? "Cancelling..." : "Cancel Job"}
+                {cancelRequested || displayStatus === "cancelling"
+                  ? "Cancelling..."
+                  : "Cancel Job"}
               </Button>
             )}
             {isTerminal && (
@@ -476,7 +497,7 @@ export default function TrainingJobDetailPage() {
                     : ""
                 }.`}
                 confirmText="Delete"
-                onConfirm={handleDeleteJob}
+                onConfirm={() => handleDeleteJob()}
                 alertTrigger={
                   <Button variant="destructive" size="sm" disabled={deletingJob}>
                     {deletingJob ? (
@@ -495,13 +516,49 @@ export default function TrainingJobDetailPage() {
         {/* A cancel issued mid-compile only lands once compilation finishes;
             surface this so the wait doesn't look like a broken cancel. */}
         {displayStatus === "cancelling" && (
-          <div className="flex items-start gap-3 rounded-lg border border-orange-300 bg-orange-50 p-4 dark:border-orange-700 dark:bg-orange-900/20">
-            <Info className="mt-0.5 h-5 w-5 shrink-0 text-orange-500" />
-            <p className="text-sm text-orange-800 dark:text-orange-200">
-              Cancellation requested. If the job is still compiling, it won't
-              stop until compilation finishes — this can take a few minutes. The
-              status will update to "Cancelled" once it takes effect.
-            </p>
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 rounded-lg border border-orange-300 bg-orange-50 p-4 dark:border-orange-700 dark:bg-orange-900/20">
+            <div className="flex items-start gap-3">
+              <Info className="mt-0.5 h-5 w-5 shrink-0 text-orange-500" />
+              <p className="text-sm text-orange-800 dark:text-orange-200">
+                {isGracePeriodActive
+                  ? `Cancellation requested. Giving the worker time to stop and save checkpoints cleanly. Force Delete unlocks in ${remainingSeconds}s if the job remains stuck.`
+                  : "Cancellation is taking longer than expected. If the worker process has stopped or hung, you can Force Delete to remove the job immediately."}
+              </p>
+            </div>
+            {isGracePeriodActive ? (
+              <Button
+                variant="outline"
+                size="sm"
+                className="shrink-0 border-orange-300 text-orange-700/60 dark:border-orange-700 dark:text-orange-300/60 cursor-not-allowed opacity-70"
+                disabled={true}
+                title={`Allowing worker 30s to finish gracefully. Force Delete unlocks in ${remainingSeconds}s if job remains stuck.`}
+              >
+                <Trash2 className="mr-2 h-4 w-4 opacity-50" />
+                Force Delete ({remainingSeconds}s)
+              </Button>
+            ) : (
+              <ConfirmDialog
+                dialogTitle={FORCE_DELETE_DIALOG_TITLE}
+                dialogDescription={FORCE_DELETE_DIALOG_DESCRIPTION}
+                confirmText="Force Delete"
+                onConfirm={() => handleDeleteJob(true)}
+                alertTrigger={
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="shrink-0 border-orange-400 text-orange-800 hover:bg-orange-100 dark:border-orange-600 dark:text-orange-200 dark:hover:bg-orange-900/40"
+                    disabled={deletingJob}
+                  >
+                    {deletingJob ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <Trash2 className="mr-2 h-4 w-4" />
+                    )}
+                    {deletingJob ? "Deleting..." : "Force Delete"}
+                  </Button>
+                }
+              />
+            )}
           </div>
         )}
 
