@@ -417,6 +417,20 @@ class TestDownloadProgress:
         assert runner.tempfile.tempdir == before
         assert not staging.exists()
 
+    def test_release_staging_restores_tempdir_before_deleting_directory(self, monkeypatch):
+        monkeypatch.setattr(runner, "_DownloadMonitor", _IdleMonitor)
+        before = runner.tempfile.tempdir
+        with runner._download_progress("ns/bundle", object()) as release_staging:
+            staging = Path(runner.tempfile.gettempdir())
+            assert staging.exists()
+            assert runner.tempfile.tempdir == str(staging)
+            release_staging()
+            assert not staging.exists()
+            assert runner.tempfile.tempdir == before
+            # Verify temp files can be created without FileNotFoundError
+            with runner.tempfile.NamedTemporaryFile() as tf:
+                assert Path(tf.name).exists()
+
 
 class _IdleMonitor:
     def __init__(self, *args):

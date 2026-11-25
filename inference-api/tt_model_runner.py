@@ -824,12 +824,18 @@ def _download_progress(repo_id: str, manifest):
     tempfile.tempdir = str(staging)
     monitor = _DownloadMonitor(repo_id, manifest, staging)
     monitor.start()
+
+    def release_staging() -> None:
+        nonlocal previous
+        if tempfile.tempdir == str(staging):
+            tempfile.tempdir = previous
+        shutil.rmtree(staging, ignore_errors=True)
+
     try:
-        yield staging
+        yield release_staging
     finally:
         monitor.stop()
-        tempfile.tempdir = previous
-        shutil.rmtree(staging, ignore_errors=True)
+        release_staging()
 
 
 def _ensure_hf_modules_dir() -> None:
@@ -884,12 +890,12 @@ def cmd_serve(args: argparse.Namespace) -> int:
     _resolve_device_ids(args.device_id, chip_count, profile.name)
 
     with _cancel_on_signal() as cancel_guard:
-        with _download_progress(args.repo_id, manifest) as staging:
+        with _download_progress(args.repo_id, manifest) as release_staging:
             manifest = _install_in_subprocess(
                 args.repo_id, manifest, installed, no_weights=args.no_weights
             )
+            release_staging()
             cancel_guard.disarm()
-            shutil.rmtree(staging, ignore_errors=True)
             _ensure_weights(args.repo_id, manifest, no_weights=args.no_weights)
     profile = _resolve_profile(manifest, args.profile, args.port)
     chip_count = _chips_for(profile.mesh_device, profile.hardware)
