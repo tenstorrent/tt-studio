@@ -160,6 +160,16 @@ class TestVerifiedCatalog:
         got, _ = self._enrich(monkeypatch, catalog, out, fetched, previous=[str(bundled)])
         assert got["ns/image"] == {"hardware": "p150", "task": "text-to-image"}
 
+    def test_enrich_heals_wiped_out_task_when_manifest_fetch_fails(self, monkeypatch, catalog, tmp_path):
+        out = tmp_path / "out.json"
+        bundled = tmp_path / "bundled.json"
+        out.write_text(json.dumps({"schema_version": 1, "bundles": [
+            {**self.ROWS[1], "manifest": {"hardware": "p300x2", "task": None}}]}))
+        bundled.write_text(json.dumps({"schema_version": 1, "bundles": [
+            {**self.ROWS[1], "manifest": {"hardware": "p300x2", "task": "text-to-image"}}]}))
+        got, _ = self._enrich(monkeypatch, catalog, out, {}, previous=[str(bundled)])
+        assert got["ns/image"] == {"hardware": "p300x2", "task": "text-to-image"}
+
     def test_enrich_keeps_none_when_online_hub_has_no_tag(self, monkeypatch, catalog, tmp_path):
         out = tmp_path / "out.json"
         bundled = tmp_path / "bundled.json"

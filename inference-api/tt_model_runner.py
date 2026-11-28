@@ -444,11 +444,14 @@ def cmd_enrich(args: argparse.Namespace) -> int:
     enriched = []
     for row in rows:
         repo = row["repo"]
-        manifest = fetched.get(repo) or stored.get(repo)
+        manifest = fetched.get(repo)
+        from_stored = manifest is None
+        if from_stored:
+            manifest = stored.get(repo)
         if manifest:
             manifest = dict(manifest)
             unresolved = manifest.pop("_task_unresolved", False)
-            if unresolved and not manifest.get("task"):
+            if (unresolved or from_stored) and not manifest.get("task"):
                 fallback_task = stored_tasks.get(repo)
                 if fallback_task:
                     manifest["task"] = fallback_task
