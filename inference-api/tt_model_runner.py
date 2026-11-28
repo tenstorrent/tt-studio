@@ -38,7 +38,7 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 # vLLM bundles are always chat servers, so they need no Hub task lookup (see _task).
 # Which engines can be deployed at all is tt_kernel's own launcher registry; which
@@ -182,27 +182,54 @@ def _launchable(kind: Optional[str]) -> bool:
     return kind in KINDS
 
 
-def _task(kind: str, repo_id: str, weights_repo: Optional[str]) -> Optional[str]:
-    """The Hub task a non-vLLM bundle serves: its own pipeline_tag, else its weights'.
+def _is_hf_offline() -> bool:
+    """True when Hugging Face Hub access is disabled via ``HF_HUB_OFFLINE``."""
+    if os.environ.get("HF_HUB_OFFLINE", "").strip().lower() in ("1", "on", "yes", "true"):
+        return True
+    try:
+        import huggingface_hub
+    except ImportError:
+        return False
+    return bool(getattr(getattr(huggingface_hub, "constants", None), "HF_HUB_OFFLINE", False))
 
-    A tt-dit-server app has no common API, so the task is what tells an image model
-    from a robotics policy. Bundles rarely tag themselves; their weights repos do.
+
+def _resolve_task(
+    kind: str, repo_id: str, weights_repo: Optional[str]
+) -> Tuple[Optional[str], bool]:
+    """Return ``(task, lookup_failed)`` for a bundle.
+
+    ``lookup_failed`` distinguishes an offline/unreachable Hub (preserve any stored task)
+    from a successful lookup where neither the bundle nor its weights declare a tag.
     """
     if kind in VLLM_KINDS:
-        return None
+        return None, False
+    if _is_hf_offline():
+        return None, True
     from huggingface_hub import HfApi
 
     api = HfApi()
+    had_error = False
     for repo in (repo_id, weights_repo):
         if not repo:
             continue
         try:
             tag = api.model_info(repo).pipeline_tag
         except Exception:
+            had_error = True
             continue
         if tag:
-            return tag
-    return None
+            return tag, False
+    return None, had_error
+
+
+def _task(kind: str, repo_id: str, weights_repo: Optional[str]) -> Optional[str]:
+    """The Hub task a non-vLLM bundle serves: its own pipeline_tag, else its weights'.
+
+    A tt-dit-server app has no common API, so the task is what tells an image model
+    from a robotics policy. Bundles rarely tag themselves; their weights repos do.
+    """
+    task, _ = _resolve_task(kind, repo_id, weights_repo)
+    return task
 
 
 def _describe(repo_id: str, manifest) -> Dict[str, Any]:
