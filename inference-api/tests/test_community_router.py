@@ -100,6 +100,31 @@ class TestRouter:
         request = community.CommunityRunRequest(repo_id="ns/name")
         assert request.wait_ready is False
 
+    def test_inspect_route_passes_catalog_and_bundled_fallbacks(self, monkeypatch, tmp_path):
+        enriched = tmp_path / "community_catalog_enriched.json"
+        bundled = tmp_path / "community_catalog_bundled.json"
+        enriched.write_text("{}")
+        bundled.write_text("{}")
+        monkeypatch.setattr(community, "_CATALOG_LOCAL", enriched)
+        monkeypatch.setattr(community, "_CATALOG_BUNDLED", bundled)
+        recorded = []
+        monkeypatch.setattr(
+            community, "_run_query",
+            lambda args: recorded.append(args) or {"event": "bundle", "task": "text-to-image"},
+        )
+        router = community.create_community_router(
+            progress_store={}, log_store={}, progress_lock=threading.Lock(),
+            max_log_messages=10,
+        )
+        route = next(r for r in router.routes if r.path == "/community/models/{repo_id:path}")
+        result = asyncio.run(route.endpoint("changh95/qwen-image-2.1-p150"))
+        assert result["task"] == "text-to-image"
+        assert recorded == [[
+            "inspect", "changh95/qwen-image-2.1-p150",
+            "--catalog", str(enriched),
+            "--previous", str(bundled),
+        ]]
+
 
 class TestDriveServe:
     """The NDJSON stream is mapped into the shared job stores by a background thread.

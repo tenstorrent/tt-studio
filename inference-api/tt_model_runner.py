@@ -19,7 +19,8 @@ Commands (all emit JSON objects, one per line, on stdout):
                                               verified community bundles for this arch
     enrich  --catalog F --out F [--previous F ...]
                                               write F's rows plus each bundle's manifest
-    inspect <repo_id>                         deployable metadata for one bundle
+    inspect <repo_id> [--catalog F] [--previous F ...]
+                                              deployable metadata for one bundle
     serve   <repo_id> [options]               event stream for one deployment
     stop    <repo_id> [--profile P]           stop one running bundle
 """
@@ -38,7 +39,7 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 # vLLM bundles are always chat servers, so they need no Hub task lookup (see _task).
 # Which engines can be deployed at all is tt_kernel's own launcher registry; which
@@ -182,30 +183,59 @@ def _launchable(kind: Optional[str]) -> bool:
     return kind in KINDS
 
 
-def _task(kind: str, repo_id: str, weights_repo: Optional[str]) -> Optional[str]:
-    """The Hub task a non-vLLM bundle serves: its own pipeline_tag, else its weights'.
+def _is_hf_offline() -> bool:
+    """True when Hugging Face Hub access is disabled via ``HF_HUB_OFFLINE``."""
+    if os.environ.get("HF_HUB_OFFLINE", "").strip().lower() in ("1", "on", "yes", "true"):
+        return True
+    try:
+        import huggingface_hub
+    except ImportError:
+        return False
+    return bool(getattr(getattr(huggingface_hub, "constants", None), "HF_HUB_OFFLINE", False))
 
-    A tt-dit-server app has no common API, so the task is what tells an image model
-    from a robotics policy. Bundles rarely tag themselves; their weights repos do.
+
+def _resolve_task(
+    kind: str, repo_id: str, weights_repo: Optional[str]
+) -> Tuple[Optional[str], bool]:
+    """Return ``(task, lookup_failed)`` for a bundle.
+
+    ``lookup_failed`` distinguishes an offline/unreachable Hub (preserve any stored task)
+    from a successful lookup where neither the bundle nor its weights declare a tag.
     """
     if kind in VLLM_KINDS:
-        return None
+        return None, False
+    if _is_hf_offline():
+        return None, True
     from huggingface_hub import HfApi
 
     api = HfApi()
+    had_error = False
     for repo in (repo_id, weights_repo):
         if not repo:
             continue
         try:
             tag = api.model_info(repo).pipeline_tag
         except Exception:
+            had_error = True
             continue
         if tag:
-            return tag
-    return None
+            return tag, False
+    return None, had_error
 
 
-def _describe(repo_id: str, manifest) -> Dict[str, Any]:
+def _task(kind: str, repo_id: str, weights_repo: Optional[str]) -> Optional[str]:
+    """The Hub task a non-vLLM bundle serves: its own pipeline_tag, else its weights'.
+
+    A tt-dit-server app has no common API, so the task is what tells an image model
+    from a robotics policy. Bundles rarely tag themselves; their weights repos do.
+    """
+    task, _ = _resolve_task(kind, repo_id, weights_repo)
+    return task
+
+
+def _describe(
+    repo_id: str, manifest, *, fallback_paths: Optional[List[str]] = None
+) -> Dict[str, Any]:
     """Everything TT Studio needs to build a model_impl and a deploy plan."""
     from tt_kernel import container
 
@@ -217,13 +247,16 @@ def _describe(repo_id: str, manifest) -> Dict[str, Any]:
     default_profile = spec.resolved_default()
     image = container.image_ref(manifest)
     weights_repo = manifest.weights.repo_id if manifest.weights else None
+    task, task_failed = _resolve_task(spec.kind, repo_id, weights_repo)
+    if task is None and task_failed and fallback_paths:
+        task = _stored_tasks(fallback_paths).get(repo_id)
     return {
         "repo_id": repo_id,
         "name": manifest.name,
         "arch": manifest.arch,
         "kind": spec.kind,
         "supported": _launchable(spec.kind),
-        "task": _task(spec.kind, repo_id, weights_repo),
+        "task": task,
         "image": image,
         "image_present": container.image_present(image),
         "weights_repo": weights_repo,
@@ -303,11 +336,12 @@ def _catalog_entry(repo_id: str) -> Optional[Dict[str, Any]]:
         emit("log", level="DEBUG", message=f"could not read manifest for {repo_id}: {e}")
         return None
     weights_repo = manifest.weights.repo_id if manifest.weights else None
-    return {
+    task, task_failed = _resolve_task(spec.kind, repo_id, weights_repo)
+    entry: Dict[str, Any] = {
         "arch": manifest.arch,
         "kind": spec.kind,
         "supported": _launchable(spec.kind),
-        "task": _task(spec.kind, repo_id, weights_repo),
+        "task": task,
         "weights_repo": weights_repo,
         "default_profile": spec.resolved_default(),
         "profiles": profiles,
@@ -316,6 +350,9 @@ def _catalog_entry(repo_id: str) -> Optional[Dict[str, Any]]:
         "hardware": default.hardware,
         "chips_required": _chips_for(default.mesh_device, default.hardware),
     }
+    if task is None and task_failed:
+        entry["_task_unresolved"] = True
+    return entry
 
 
 def _fetch_manifests(repo_ids: List[str]) -> Dict[str, Dict[str, Any]]:
@@ -334,6 +371,17 @@ def _stored_manifests(path: str) -> Dict[str, Dict[str, Any]]:
     except (OSError, ValueError):
         return {}
     return {row["repo"]: row["manifest"] for row in rows if row.get("manifest")}
+
+
+def _stored_tasks(paths: List[str]) -> Dict[str, str]:
+    """First non-null stored task per repo across ``paths`` in priority order."""
+    tasks: Dict[str, str] = {}
+    for path in paths:
+        for repo, manifest in _stored_manifests(path).items():
+            task = manifest.get("task")
+            if task and repo not in tasks:
+                tasks[repo] = task
+    return tasks
 
 
 def cmd_catalog(args: argparse.Namespace) -> int:
@@ -388,12 +436,25 @@ def cmd_enrich(args: argparse.Namespace) -> int:
     # redirect_stdout is process-wide, so the thread pool must run inside it.
     with _quiet_tt_kernel():
         fetched = _fetch_manifests([row["repo"] for row in rows])
+    fallback_paths = [args.out, *(args.previous or [])]
     stored: Dict[str, Dict[str, Any]] = {}
-    for path in reversed([args.out, *(args.previous or [])]):
+    for path in reversed(fallback_paths):
         stored.update(_stored_manifests(path))
+    stored_tasks = _stored_tasks(fallback_paths)
     enriched = []
     for row in rows:
-        manifest = fetched.get(row["repo"]) or stored.get(row["repo"])
+        repo = row["repo"]
+        manifest = fetched.get(repo)
+        from_stored = manifest is None
+        if from_stored:
+            manifest = stored.get(repo)
+        if manifest:
+            manifest = dict(manifest)
+            unresolved = manifest.pop("_task_unresolved", False)
+            if (unresolved or from_stored) and not manifest.get("task"):
+                fallback_task = stored_tasks.get(repo)
+                if fallback_task:
+                    manifest["task"] = fallback_task
         enriched.append({**row, "manifest": manifest} if manifest else row)
     doc = {"schema_version": CATALOG_SCHEMA_VERSION, "bundles": enriched}
     tmp = f"{args.out}.tmp"
@@ -408,7 +469,16 @@ def cmd_inspect(args: argparse.Namespace) -> int:
     manifest, installed = _load_manifest(args.repo_id, allow_fetch=True)
     if manifest is None:
         raise RuntimeError(f"{args.repo_id} is not installed and could not be fetched")
-    emit("bundle", installed=installed, **_describe(args.repo_id, manifest))
+    fallback_paths = [
+        p
+        for p in (getattr(args, "catalog", None), *(getattr(args, "previous", None) or []))
+        if p
+    ]
+    emit(
+        "bundle",
+        installed=installed,
+        **_describe(args.repo_id, manifest, fallback_paths=fallback_paths),
+    )
     return 0
 
 
@@ -871,6 +941,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     inspect = sub.add_parser("inspect")
     inspect.add_argument("repo_id", type=_matching(_REPO_ID, "repo id"))
+    inspect.add_argument("--catalog")
+    inspect.add_argument("--previous", action="append")
     inspect.set_defaults(func=cmd_inspect)
 
     serve = sub.add_parser("serve")
