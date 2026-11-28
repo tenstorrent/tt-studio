@@ -330,11 +330,12 @@ def _catalog_entry(repo_id: str) -> Optional[Dict[str, Any]]:
         emit("log", level="DEBUG", message=f"could not read manifest for {repo_id}: {e}")
         return None
     weights_repo = manifest.weights.repo_id if manifest.weights else None
-    return {
+    task, task_failed = _resolve_task(spec.kind, repo_id, weights_repo)
+    entry: Dict[str, Any] = {
         "arch": manifest.arch,
         "kind": spec.kind,
         "supported": _launchable(spec.kind),
-        "task": _task(spec.kind, repo_id, weights_repo),
+        "task": task,
         "weights_repo": weights_repo,
         "default_profile": spec.resolved_default(),
         "profiles": profiles,
@@ -343,6 +344,9 @@ def _catalog_entry(repo_id: str) -> Optional[Dict[str, Any]]:
         "hardware": default.hardware,
         "chips_required": _chips_for(default.mesh_device, default.hardware),
     }
+    if task is None and task_failed:
+        entry["_task_unresolved"] = True
+    return entry
 
 
 def _fetch_manifests(repo_ids: List[str]) -> Dict[str, Dict[str, Any]]:
@@ -361,6 +365,17 @@ def _stored_manifests(path: str) -> Dict[str, Dict[str, Any]]:
     except (OSError, ValueError):
         return {}
     return {row["repo"]: row["manifest"] for row in rows if row.get("manifest")}
+
+
+def _stored_tasks(paths: List[str]) -> Dict[str, str]:
+    """First non-null stored task per repo across ``paths`` in priority order."""
+    tasks: Dict[str, str] = {}
+    for path in paths:
+        for repo, manifest in _stored_manifests(path).items():
+            task = manifest.get("task")
+            if task and repo not in tasks:
+                tasks[repo] = task
+    return tasks
 
 
 def cmd_catalog(args: argparse.Namespace) -> int:
@@ -415,12 +430,22 @@ def cmd_enrich(args: argparse.Namespace) -> int:
     # redirect_stdout is process-wide, so the thread pool must run inside it.
     with _quiet_tt_kernel():
         fetched = _fetch_manifests([row["repo"] for row in rows])
+    fallback_paths = [args.out, *(args.previous or [])]
     stored: Dict[str, Dict[str, Any]] = {}
-    for path in reversed([args.out, *(args.previous or [])]):
+    for path in reversed(fallback_paths):
         stored.update(_stored_manifests(path))
+    stored_tasks = _stored_tasks(fallback_paths)
     enriched = []
     for row in rows:
-        manifest = fetched.get(row["repo"]) or stored.get(row["repo"])
+        repo = row["repo"]
+        manifest = fetched.get(repo) or stored.get(repo)
+        if manifest:
+            manifest = dict(manifest)
+            unresolved = manifest.pop("_task_unresolved", False)
+            if unresolved and not manifest.get("task"):
+                fallback_task = stored_tasks.get(repo)
+                if fallback_task:
+                    manifest["task"] = fallback_task
         enriched.append({**row, "manifest": manifest} if manifest else row)
     doc = {"schema_version": CATALOG_SCHEMA_VERSION, "bundles": enriched}
     tmp = f"{args.out}.tmp"
