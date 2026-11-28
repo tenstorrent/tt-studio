@@ -148,6 +148,27 @@ class TestVerifiedCatalog:
         assert got["ns/chat"] == {"v": "out"}
         assert got["ns/image"] == {"v": "bundled"}
 
+    def test_enrich_keeps_stored_task_when_lookup_failed_and_heals_wiped_out(self, monkeypatch, catalog, tmp_path):
+        out = tmp_path / "out.json"
+        bundled = tmp_path / "bundled.json"
+        # Simulate an out.json previously wiped to task=None while bundled.json still holds it.
+        out.write_text(json.dumps({"schema_version": 1, "bundles": [
+            {**self.ROWS[1], "manifest": {"hardware": "p300x2", "task": None}}]}))
+        bundled.write_text(json.dumps({"schema_version": 1, "bundles": [
+            {**self.ROWS[1], "manifest": {"hardware": "p300x2", "task": "text-to-image"}}]}))
+        fetched = {"ns/image": {"hardware": "p150", "task": None, "_task_unresolved": True}}
+        got, _ = self._enrich(monkeypatch, catalog, out, fetched, previous=[str(bundled)])
+        assert got["ns/image"] == {"hardware": "p150", "task": "text-to-image"}
+
+    def test_enrich_keeps_none_when_online_hub_has_no_tag(self, monkeypatch, catalog, tmp_path):
+        out = tmp_path / "out.json"
+        bundled = tmp_path / "bundled.json"
+        bundled.write_text(json.dumps({"schema_version": 1, "bundles": [
+            {**self.ROWS[1], "manifest": {"hardware": "p300x2", "task": "text-to-image"}}]}))
+        fetched = {"ns/image": {"hardware": "p300x2", "task": None}}
+        got, _ = self._enrich(monkeypatch, catalog, out, fetched, previous=[str(bundled)])
+        assert got["ns/image"] == {"hardware": "p300x2", "task": None}
+
     def test_enriched_catalog_is_a_valid_catalog(self, monkeypatch, catalog, tmp_path):
         out = tmp_path / "out.json"
         self._enrich(monkeypatch, catalog, out, {"ns/chat": {"hardware": "p300x2"}})
@@ -197,6 +218,90 @@ class TestTask:
         task = runner._task("tt-dit-server", "ns/missing", "org/weights")
         assert task == "text-to-image"
         assert runner._task("tt-dit-server", "ns/missing", None) is None
+
+    def test_distinguishes_hub_error_from_untagged_repo(self, hub):
+        assert runner._resolve_task("tt-dit-server", "ns/bundle", None) == (None, False)
+        assert runner._resolve_task("tt-dit-server", "ns/missing", None) == (None, True)
+
+    def test_offline_env_skips_hub_lookup(self, hub, monkeypatch):
+        monkeypatch.setenv("HF_HUB_OFFLINE", "1")
+        assert runner._resolve_task("tt-dit-server", "ns/tagged", "org/weights") == (None, True)
+        assert hub == []
+
+
+class TestInspectOfflineFallback:
+    """Offline `inspect` preserves the stored catalog task when Hub lookups fail."""
+
+    @pytest.fixture
+    def inspect_env(self, monkeypatch, fake_tt_kernel):
+        tags = {}
+        asked = []
+
+        def model_info(repo):
+            asked.append(repo)
+            if repo not in tags:
+                raise RuntimeError("offline")
+            return types.SimpleNamespace(pipeline_tag=tags[repo])
+
+        hf = types.ModuleType("huggingface_hub")
+        hf.HfApi = lambda: types.SimpleNamespace(model_info=model_info)
+        monkeypatch.setitem(sys.modules, "huggingface_hub", hf)
+
+        profile = types.SimpleNamespace(
+            name="default", description=None, hardware="p150", mesh_device="P150",
+            port=7000, max_model_len=None, max_num_seqs=None, capabilities=None,
+        )
+        spec = types.SimpleNamespace(
+            kind="tt-dit-server",
+            profile_names=lambda: ["default"],
+            resolve_profile=lambda name: profile,
+            resolved_default=lambda: "default",
+            built={},
+        )
+        manifest = types.SimpleNamespace(
+            name="s2-pro", arch="blackhole", container=spec,
+            weights=types.SimpleNamespace(repo_id="org/weights"),
+            is_container=True,
+        )
+        sys.modules["tt_kernel"].container.image_ref = lambda m: "tt-model/s2-pro:1"
+        sys.modules["tt_kernel"].container.image_present = lambda ref: True
+        sys.modules["tt_kernel"].container_cli.load_pulled = lambda repo_id: manifest
+        sys.modules["tt_kernel"].hub = types.SimpleNamespace()
+
+        events = []
+        monkeypatch.setattr(runner, "emit", lambda event, **f: events.append((event, f)))
+        return tags, asked, events
+
+    def test_offline_inspect_uses_previous_when_catalog_wiped(self, inspect_env, monkeypatch, tmp_path):
+        _, asked, events = inspect_env
+        monkeypatch.setenv("HF_HUB_OFFLINE", "1")
+        enriched = tmp_path / "enriched.json"
+        bundled = tmp_path / "bundled.json"
+        enriched.write_text(json.dumps({"schema_version": 1, "bundles": [
+            {"repo": "ns/tts", "manifest": {"task": None}}]}))
+        bundled.write_text(json.dumps({"schema_version": 1, "bundles": [
+            {"repo": "ns/tts", "manifest": {"task": "text-to-speech"}}]}))
+        args = types.SimpleNamespace(repo_id="ns/tts", catalog=str(enriched), previous=[str(bundled)])
+        assert runner.cmd_inspect(args) == 0
+        assert asked == []
+        assert events[-1][1]["task"] == "text-to-speech"
+
+    def test_online_inspect_prefers_live_task_and_honors_untagged(self, inspect_env, tmp_path):
+        tags, _, events = inspect_env
+        bundled = tmp_path / "bundled.json"
+        bundled.write_text(json.dumps({"schema_version": 1, "bundles": [
+            {"repo": "ns/tts", "manifest": {"task": "text-to-speech"}}]}))
+        tags["ns/tts"] = "image-to-image"
+        args = types.SimpleNamespace(repo_id="ns/tts", catalog=str(bundled), previous=None)
+        assert runner.cmd_inspect(args) == 0
+        assert events[-1][1]["task"] == "image-to-image"
+
+        # Hub online with no tag must not fall back to a stale stored task.
+        tags["ns/tts"] = None
+        tags["org/weights"] = None
+        events.clear()
+        assert runner.cmd_inspect(args) == 0
+        assert events[-1][1]["task"] is None
 
 
 class TestFetchManifests:
