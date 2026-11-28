@@ -19,7 +19,8 @@ Commands (all emit JSON objects, one per line, on stdout):
                                               verified community bundles for this arch
     enrich  --catalog F --out F [--previous F ...]
                                               write F's rows plus each bundle's manifest
-    inspect <repo_id>                         deployable metadata for one bundle
+    inspect <repo_id> [--catalog F] [--previous F ...]
+                                              deployable metadata for one bundle
     serve   <repo_id> [options]               event stream for one deployment
     stop    <repo_id> [--profile P]           stop one running bundle
 """
@@ -232,7 +233,9 @@ def _task(kind: str, repo_id: str, weights_repo: Optional[str]) -> Optional[str]
     return task
 
 
-def _describe(repo_id: str, manifest) -> Dict[str, Any]:
+def _describe(
+    repo_id: str, manifest, *, fallback_paths: Optional[List[str]] = None
+) -> Dict[str, Any]:
     """Everything TT Studio needs to build a model_impl and a deploy plan."""
     from tt_kernel import container
 
@@ -244,13 +247,16 @@ def _describe(repo_id: str, manifest) -> Dict[str, Any]:
     default_profile = spec.resolved_default()
     image = container.image_ref(manifest)
     weights_repo = manifest.weights.repo_id if manifest.weights else None
+    task, task_failed = _resolve_task(spec.kind, repo_id, weights_repo)
+    if task is None and task_failed and fallback_paths:
+        task = _stored_tasks(fallback_paths).get(repo_id)
     return {
         "repo_id": repo_id,
         "name": manifest.name,
         "arch": manifest.arch,
         "kind": spec.kind,
         "supported": _launchable(spec.kind),
-        "task": _task(spec.kind, repo_id, weights_repo),
+        "task": task,
         "image": image,
         "image_present": container.image_present(image),
         "weights_repo": weights_repo,
@@ -460,7 +466,16 @@ def cmd_inspect(args: argparse.Namespace) -> int:
     manifest, installed = _load_manifest(args.repo_id, allow_fetch=True)
     if manifest is None:
         raise RuntimeError(f"{args.repo_id} is not installed and could not be fetched")
-    emit("bundle", installed=installed, **_describe(args.repo_id, manifest))
+    fallback_paths = [
+        p
+        for p in (getattr(args, "catalog", None), *(getattr(args, "previous", None) or []))
+        if p
+    ]
+    emit(
+        "bundle",
+        installed=installed,
+        **_describe(args.repo_id, manifest, fallback_paths=fallback_paths),
+    )
     return 0
 
 
@@ -923,6 +938,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     inspect = sub.add_parser("inspect")
     inspect.add_argument("repo_id", type=_matching(_REPO_ID, "repo id"))
+    inspect.add_argument("--catalog")
+    inspect.add_argument("--previous", action="append")
     inspect.set_defaults(func=cmd_inspect)
 
     serve = sub.add_parser("serve")

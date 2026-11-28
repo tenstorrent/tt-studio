@@ -348,7 +348,11 @@ def create_community_router(
     @router.get("/models/{repo_id:path}")
     async def community_model(repo_id: str):
         """Deployable metadata for one bundle: profiles, mesh, chips, weights, engine."""
-        return await asyncio.to_thread(_run_query, ["inspect", repo_id])
+        catalog = _catalog_path()
+        args = ["inspect", repo_id, "--catalog", catalog]
+        if catalog != str(_CATALOG_BUNDLED) and _CATALOG_BUNDLED.exists():
+            args += ["--previous", str(_CATALOG_BUNDLED)]
+        return await asyncio.to_thread(_run_query, args)
 
     @router.post("/run")
     async def community_run(request: CommunityRunRequest):
